@@ -70,7 +70,7 @@ pub async fn setup_test_app_existing_localhost() -> Result<TestInstance, Box<dyn
     })
 }
 
-async fn setup_test_app_existing_db() -> Result<TestInstance, Box<dyn std::error::Error>> {
+pub async fn setup_test_app_existing_db() -> Result<TestInstance, Box<dyn std::error::Error>> {
     let app_port = get_app_port();
     let (app_close_channel, rx) = tokio::sync::watch::channel(false);
     start_coprocessor(rx, app_port, LOCAL_DB_URL).await;
@@ -229,6 +229,51 @@ pub async fn wait_until_all_allowed_handles_computed(
     }
 
     Ok(())
+}
+
+// Listener integration
+use alloy::primitives::{FixedBytes, Log};
+use bigdecimal::num_bigint::BigInt;
+use fhevm_listener::contracts::TfheContract::TfheContractEvents;
+use fhevm_listener::database::tfhe_event_propagate::{
+    ClearConst, Database as ListenerDatabase, Handle, ToType,
+};
+
+pub fn tfhe_event(data: TfheContractEvents) -> Log<TfheContractEvents> {
+    let address = "0x0000000000000000000000000000000000000000"
+        .parse()
+        .unwrap();
+    Log::<TfheContractEvents> { address, data }
+}
+pub fn as_handle(big_int: &BigInt) -> Handle {
+    let (_, bytes) = big_int.to_bytes_be();
+    Handle::right_padding_from(&bytes)
+}
+pub fn as_scalar_uint(big_int: &BigInt) -> ClearConst {
+    let (_, bytes) = big_int.to_bytes_be();
+    ClearConst::from_be_slice(&bytes)
+}
+pub fn next_handle() -> Handle {
+    #[expect(non_upper_case_globals)]
+    static count: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let v = count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    as_handle(&BigInt::from(v))
+}
+
+pub async fn listener_event_to_db(app: &TestInstance) -> ListenerDatabase {
+    let coprocessor_api_key = sqlx::types::Uuid::parse_str(default_api_key()).unwrap();
+    let url = app.db_url().to_string();
+    let chain_id = 0;
+    ListenerDatabase::new(
+        &url,
+        &coprocessor_api_key,
+        chain_id,
+        default_dependence_cache_size(),
+    )
+    .await
+}
+pub fn default_dependence_cache_size() -> u16 {
+    128
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -863,9 +908,12 @@ pub struct EnvConfig {
     pub batch_size: i32,
     #[allow(dead_code)]
     pub scheduling_policy: String,
+    #[allow(dead_code)]
     pub benchmark_type: String,
     #[allow(dead_code)]
     pub optimization_target: String,
+    #[allow(dead_code)]
+    pub evgen_scenario: String,
 }
 
 impl EnvConfig {
@@ -895,6 +943,10 @@ impl EnvConfig {
             Ok(val) => val,
             Err(_) => "throughput".to_string(),
         };
+        let evgen_scenario: String = match env::var("EVGEN_SCENARIO") {
+            Ok(val) => val,
+            Err(_) => "DEFAULT".to_string(),
+        };
 
         EnvConfig {
             is_multi_bit,
@@ -903,6 +955,7 @@ impl EnvConfig {
             scheduling_policy,
             benchmark_type,
             optimization_target,
+            evgen_scenario,
         }
     }
 

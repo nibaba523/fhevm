@@ -44,6 +44,10 @@ clean_run:
 benchmark_erc20_gpu:
 	RUSTFLAGS="-C target-cpu=native" $(DB_URL) cargo +nightly bench --bench erc20 --features=gpu,bench,$(OPTIMIZATION_TARGET) --
 
+.PHONY: benchmark_evgen_gpu # Run evgen benchmarks on GPU
+benchmark_evgen_gpu:
+	RUSTFLAGS="-C target-cpu=native" $(DB_URL) cargo +nightly bench --bench evgen --features=gpu,bench,$(OPTIMIZATION_TARGET) --
+
 .PHONY: benchmark_dex_gpu # Run DEX benchmarks on GPU
 benchmark_dex_gpu:
 	RUSTFLAGS="-C target-cpu=native" $(DB_URL) cargo +nightly bench --bench dex --features=gpu,bench,$(OPTIMIZATION_TARGET) --
@@ -60,6 +64,10 @@ benchmark_all_gpu:
 .PHONY: benchmark_erc20_cpu # Run ECR20 transfer benchmarks on CPU
 benchmark_erc20_cpu:
 	RUSTFLAGS="-C target-cpu=native" $(DB_URL) cargo +nightly bench --bench erc20 --features=bench --
+
+.PHONY: benchmark_evgen_cpu # Run evgen benchmarks on CPU
+benchmark_evgen_cpu:
+	RUSTFLAGS="-C target-cpu=native" $(DB_URL) cargo +nightly bench --bench evgen --features=bench --
 
 .PHONY: benchmark_dex_cpu # Run DEX benchmarks on CPU
 benchmark_dex_cpu:
