@@ -31,8 +31,8 @@ use std::ops::{Add, Sub};
 use std::time::SystemTime;
 use tokio::runtime::Runtime;
 use utils::{
-    as_scalar_uint, next_handle, setup_test_app_existing_db, setup_test_app_existing_localhost,
-    tfhe_event, EnvConfig,
+    as_scalar_uint, next_random_handle, setup_test_app_existing_db,
+    setup_test_app_existing_localhost, tfhe_event, EnvConfig,
 };
 
 fn test_random_user_address() -> String {
@@ -53,7 +53,7 @@ async fn generate_random_handle_amount_if_none(
     if let Some(res) = result {
         return Ok(res);
     }
-    let handle = next_handle();
+    let handle = next_random_handle();
     let caller = "0x0000000000000000000000000000000000000000"
         .parse()
         .unwrap();
@@ -85,7 +85,7 @@ async fn erc20_whitepaper_transaction(
     listener_event_to_db: &mut ListenerDatabase,
     pool: &sqlx::Pool<Postgres>,
 ) -> Result<(Handle, Handle), Box<dyn std::error::Error>> {
-    let transaction_id = next_handle();
+    let transaction_id = next_random_handle();
     let source =
         generate_random_handle_amount_if_none(source, transaction_id, listener_event_to_db).await?;
     let destination =
@@ -94,7 +94,7 @@ async fn erc20_whitepaper_transaction(
     let amount =
         generate_random_handle_amount_if_none(amount, transaction_id, listener_event_to_db).await?;
 
-    let has_enough_funds = next_handle();
+    let has_enough_funds = next_random_handle();
     let caller = "0x0000000000000000000000000000000000000000"
         .parse()
         .unwrap();
@@ -116,7 +116,7 @@ async fn erc20_whitepaper_transaction(
     };
     listener_event_to_db.insert_tfhe_event(&log).await?;
 
-    let new_destination_target = next_handle();
+    let new_destination_target = next_random_handle();
     let log = alloy::rpc::types::Log {
         inner: tfhe_event(TfheContractEvents::FheAdd(TfheContract::FheAdd {
             caller,
@@ -135,7 +135,7 @@ async fn erc20_whitepaper_transaction(
     };
     listener_event_to_db.insert_tfhe_event(&log).await?;
 
-    let new_destination = next_handle();
+    let new_destination = next_random_handle();
     let log = alloy::rpc::types::Log {
         inner: tfhe_event(TfheContractEvents::FheIfThenElse(
             TfheContract::FheIfThenElse {
@@ -157,7 +157,7 @@ async fn erc20_whitepaper_transaction(
     allow_handle(&new_destination.to_vec(), pool).await?;
     listener_event_to_db.insert_tfhe_event(&log).await?;
 
-    let new_source_target = next_handle();
+    let new_source_target = next_random_handle();
     let log = alloy::rpc::types::Log {
         inner: tfhe_event(TfheContractEvents::FheSub(TfheContract::FheSub {
             caller,
@@ -176,7 +176,7 @@ async fn erc20_whitepaper_transaction(
     };
     listener_event_to_db.insert_tfhe_event(&log).await?;
 
-    let new_source = next_handle();
+    let new_source = next_random_handle();
     let log = alloy::rpc::types::Log {
         inner: tfhe_event(TfheContractEvents::FheIfThenElse(
             TfheContract::FheIfThenElse {
@@ -207,10 +207,10 @@ async fn generate_erc20_at_rate(
     listener_event_to_db: &mut ListenerDatabase,
     pool: &sqlx::Pool<Postgres>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut dependence_handle = next_handle();
+    let mut dependence_handle = next_random_handle();
     if dependent {
         dependence_handle =
-            generate_random_handle_amount_if_none(None, next_handle(), listener_event_to_db)
+            generate_random_handle_amount_if_none(None, next_random_handle(), listener_event_to_db)
                 .await?;
         allow_handle(&dependence_handle.to_vec(), pool).await?;
     }
@@ -250,6 +250,42 @@ async fn generate_erc20_at_rate(
     Ok(())
 }
 
+async fn generate_erc20_count(
+    scenario: Vec<(f64, u64)>,
+    dependent: bool,
+    listener_event_to_db: &mut ListenerDatabase,
+    pool: &sqlx::Pool<Postgres>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut dependence_handle = next_random_handle();
+    if dependent {
+        dependence_handle =
+            generate_random_handle_amount_if_none(None, next_random_handle(), listener_event_to_db)
+                .await?;
+        allow_handle(&dependence_handle.to_vec(), pool).await?;
+    }
+    for (num_transactions, iter_count) in scenario.iter() {
+        for _ in 0..*iter_count {
+            for _ in 0..(*num_transactions as u64) {
+                if dependent {
+                    (_, dependence_handle) = erc20_whitepaper_transaction(
+                        None,
+                        Some(dependence_handle),
+                        None,
+                        listener_event_to_db,
+                        pool,
+                    )
+                    .await?;
+                } else {
+                    let (_, _) =
+                        erc20_whitepaper_transaction(None, None, None, listener_event_to_db, pool)
+                            .await?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 async fn transaction_generator() -> Result<(), Box<dyn std::error::Error>> {
     let ecfg = EnvConfig::new();
     let app = setup_test_app_existing_db().await?;
@@ -277,8 +313,20 @@ async fn transaction_generator() -> Result<(), Box<dyn std::error::Error>> {
         // (vec![(0.5, 3u64), (1.0, 1u64), (0.2, 4u64)], true),
         // (vec![(0.5, 2u64), (1.0, 6u64)], false),
     ];
+    let scenario_maxi = [
+        (
+            vec![
+                (4000.0, 30u64),
+                (5000.0, 30u64),
+                (1500.0, 10u64),
+                (1000.0, 20u64),
+            ],
+            true,
+        ),
+        (vec![(5000.0, 90u64)], false),
+    ];
     //if ecfg.evgen_scenario != "DEFAULT" {}
-    let generators: Vec<_> = scenario_mini
+    let generators: Vec<_> = scenario_maxi
         .iter()
         .map(|s| {
             let s = s.to_owned();
@@ -291,7 +339,8 @@ async fn transaction_generator() -> Result<(), Box<dyn std::error::Error>> {
                     .unwrap();
                 let mut listener_event_to_db = listener_event_to_db(&app).await;
 
-                if generate_erc20_at_rate(s.0, s.1, &mut listener_event_to_db, &pool)
+                //if generate_erc20_at_rate(s.0, s.1, &mut listener_event_to_db, &pool)
+                if generate_erc20_count(s.0, s.1, &mut listener_event_to_db, &pool)
                     .await
                     .is_err()
                 {
@@ -302,12 +351,12 @@ async fn transaction_generator() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
     futures::future::join_all(generators).await;
 
-    if wait_until_all_allowed_handles_computed(app.db_url().to_string())
-        .await
-        .is_err()
-    {
-        panic!("TFHE worker failed");
-    }
+    // if wait_until_all_allowed_handles_computed(app.db_url().to_string())
+    //     .await
+    //     .is_err()
+    // {
+    //     panic!("TFHE worker failed");
+    // }
 
     Ok(())
 }

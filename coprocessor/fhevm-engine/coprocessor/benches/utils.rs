@@ -73,6 +73,11 @@ pub async fn setup_test_app_existing_localhost() -> Result<TestInstance, Box<dyn
 pub async fn setup_test_app_existing_db() -> Result<TestInstance, Box<dyn std::error::Error>> {
     let app_port = get_app_port();
     let (app_close_channel, rx) = tokio::sync::watch::channel(false);
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(10)
+        .connect(LOCAL_DB_URL)
+        .await?;
+    setup_test_user(&pool).await?;
     start_coprocessor(rx, app_port, LOCAL_DB_URL).await;
     Ok(TestInstance {
         _container: None,
@@ -92,7 +97,7 @@ async fn start_coprocessor(rx: Receiver<bool>, app_port: u16, db_url: &str) {
         server_maximum_ciphertexts_to_schedule: 20000,
         server_maximum_ciphertexts_to_get: 20000,
         work_items_batch_size: ecfg.batch_size,
-        dependence_chains_per_batch: 2000,
+        dependence_chains_per_batch: 5000,
         tenant_key_cache_size: 4,
         coprocessor_fhe_threads: 128,
         maximum_handles_per_input: 255,
@@ -259,6 +264,9 @@ pub fn next_handle() -> Handle {
     let v = count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     as_handle(&BigInt::from(v))
 }
+pub fn next_random_handle() -> Handle {
+    as_handle(&BigInt::from(rand::rng().random::<u64>()))
+}
 
 pub async fn listener_event_to_db(app: &TestInstance) -> ListenerDatabase {
     let coprocessor_api_key = sqlx::types::Uuid::parse_str(default_api_key()).unwrap();
@@ -315,6 +323,11 @@ pub async fn setup_test_user(pool: &sqlx::PgPool) -> Result<(), Box<dyn std::err
                 $3,
                 $4
             )
+            ON CONFLICT (tenant_api_key) DO UPDATE
+            SET pks_key = EXCLUDED.pks_key,
+                sks_key = EXCLUDED.sks_key,
+                public_params = EXCLUDED.public_params,
+                cks_key = EXCLUDED.cks_key
         ",
         &pks,
         &sks,
@@ -929,7 +942,7 @@ impl EnvConfig {
         };
         let batch_size: i32 = match env::var("BENCHMARK_BATCH_SIZE") {
             Ok(val) => val.parse::<i32>().unwrap(),
-            Err(_) => 4000,
+            Err(_) => 5000,
         };
         let scheduling_policy: String = match env::var("FHEVM_DF_SCHEDULE") {
             Ok(val) => val,
