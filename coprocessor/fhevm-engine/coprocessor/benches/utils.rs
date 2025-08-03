@@ -97,7 +97,7 @@ async fn start_coprocessor(rx: Receiver<bool>, app_port: u16, db_url: &str) {
         server_maximum_ciphertexts_to_schedule: 20000,
         server_maximum_ciphertexts_to_get: 20000,
         work_items_batch_size: ecfg.batch_size,
-        dependence_chains_per_batch: 5000,
+        dependence_chains_per_batch: ecfg.dep_chains_batch_size,
         tenant_key_cache_size: 4,
         coprocessor_fhe_threads: 128,
         maximum_handles_per_input: 255,
@@ -919,6 +919,7 @@ pub struct EnvConfig {
     pub is_multi_bit: bool,
     pub is_fast_bench: bool,
     pub batch_size: i32,
+    pub dep_chains_batch_size: i32,
     #[allow(dead_code)]
     pub scheduling_policy: String,
     #[allow(dead_code)]
@@ -944,6 +945,10 @@ impl EnvConfig {
             Ok(val) => val.parse::<i32>().unwrap(),
             Err(_) => 5000,
         };
+        let dep_chains_batch_size: i32 = match env::var("BENCHMARK_DEPENDENCE_CHAINS_BATCH_SIZE") {
+            Ok(val) => val.parse::<i32>().unwrap(),
+            Err(_) => 5000,
+        };
         let scheduling_policy: String = match env::var("FHEVM_DF_SCHEDULE") {
             Ok(val) => val,
             Err(_) => "MAX_PARALLELISM".to_string(),
@@ -965,6 +970,7 @@ impl EnvConfig {
             is_multi_bit,
             is_fast_bench,
             batch_size,
+            dep_chains_batch_size,
             scheduling_policy,
             benchmark_type,
             optimization_target,

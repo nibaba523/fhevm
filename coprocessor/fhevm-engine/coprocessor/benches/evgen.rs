@@ -351,28 +351,20 @@ async fn transaction_generator() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
     futures::future::join_all(generators).await;
 
-    // if wait_until_all_allowed_handles_computed(app.db_url().to_string())
-    //     .await
-    //     .is_err()
-    // {
-    //     panic!("TFHE worker failed");
-    // }
+    if wait_until_all_allowed_handles_computed(app.db_url().to_string())
+        .await
+        .is_err()
+    {
+        panic!("TFHE worker failed");
+    }
 
     Ok(())
 }
 
 fn main() {
-    //rayon::join(
-    //  || {
     Runtime::new()
         .unwrap()
         .block_on(transaction_generator())
         .unwrap();
-    // },
-    //     || {
-    //         Runtime::new().unwrap().block_on(tfhe_worker()).unwrap();
-    //     },
-    // );
-
     println!("Done");
 }
