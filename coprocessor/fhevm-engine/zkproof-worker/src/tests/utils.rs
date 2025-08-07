@@ -98,6 +98,29 @@ pub(crate) async fn generate_zk_pok(pool: &sqlx::PgPool, aux_data: &[u8]) -> Vec
     safe_serialize(&the_list)
 }
 
+pub(crate) async fn generate_empty_input_list(pool: &sqlx::PgPool, aux_data: &[u8]) -> Vec<u8> {
+    let keys: Vec<tenant_keys::TfheTenantKeys> =
+        tenant_keys::query_tenant_keys(vec![1], pool, true)
+            .await
+            .map_err(|e| {
+                let e: Box<dyn std::error::Error> = e;
+                e
+            })
+            .unwrap();
+    let keys = &keys[0];
+
+    let builder = tfhe::ProvenCompactCiphertextList::builder(&keys.pks);
+    let the_list = builder
+        .build_with_proof_packed(
+            &keys.public_params,
+            aux_data,
+            tfhe::zk::ZkComputeLoad::Proof,
+        )
+        .unwrap();
+
+    safe_serialize(&the_list)
+}
+
 pub(crate) async fn insert_proof(
     pool: &sqlx::PgPool,
     request_id: i64,
